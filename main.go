@@ -12,6 +12,12 @@ import (
 	"github.com/go-gl/glu"
 )
 
+// TODO:
+
+// * Proper orbits
+// * Texturing
+// * Shaders
+
 type Planetoid struct {
 	apogee, perigee, inclination, phase0, phase, rising_node float64
 
@@ -20,12 +26,6 @@ type Planetoid struct {
 	quadric unsafe.Pointer
 	circle  *glh.MeshBuffer
 }
-
-// func NewPlanetoid(apogee, perigee, inclination, phase0, phase, radius float64,
-// 	circle *glh.MeshBuffer) *Planetoid {
-
-// 	// return &Planetoid{apogee, perigee, inclination, phase0, phase, radius, glu.NewQuadric(), circle}
-// }
 
 func (p *Planetoid) Render(dp float64) {
 	gl.PushMatrix()
@@ -99,14 +99,28 @@ func main() {
 	var (
 		ambient  []float32 = []float32{0.1, 0.3, 0.6, 1} // ambient light colour.
 		diffuse  []float32 = []float32{1, 1, 0.5, 1}     // diffuse light colour.
+		specular []float32 = []float32{1, 1, 1, 1}       // diffuse light colour.
 		lightpos []float32 = []float32{100000, 0, 0, 1}  // Position of light source.
+
+		mat_specular   []float32 = []float32{1, 1, 1, 1} //0.5, 0.5, 0.9, 0.5}
+		mat_shininess  []float32 = []float32{5}
+		light_position []float32 = []float32{0.0, 1.0, 0.0, 0.0}
 	)
 
 	gl.Lightfv(gl.LIGHT1, gl.AMBIENT, ambient)
 	gl.Lightfv(gl.LIGHT1, gl.DIFFUSE, diffuse)
-	// gl.Lightfv(gl.LIGHT1, gl.SPECULAR, diffuse)
 	gl.Lightfv(gl.LIGHT1, gl.POSITION, lightpos)
-	gl.Enable(gl.LIGHT1)
+	// gl.Enable(gl.LIGHT1)
+
+	// gl.LightModeli(gl.LIGHT_MODEL_LOCAL_VIEWER, gl.TRUE)
+	// gl.LightModeli(gl.LIGHT_MODEL_LOCAL_VIEWER, gl.FALSE)
+
+	gl.Materialfv(gl.FRONT_AND_BACK, gl.SPECULAR, mat_specular)
+	gl.Materialfv(gl.FRONT_AND_BACK, gl.SHININESS, mat_shininess)
+
+	gl.Lightfv(gl.LIGHT2, gl.SPECULAR, specular)
+	gl.Lightfv(gl.LIGHT2, gl.POSITION, light_position)
+	gl.Enable(gl.LIGHT2)
 
 	gl.MatrixMode(gl.MODELVIEW)
 
@@ -122,8 +136,9 @@ func main() {
 		r := 0.05 * (math.Cos(float64(i)*79) + 1)
 		// p := NewPlanetoid(r, 1.5, 1.5, 0, , b)
 		p := &Planetoid{
-			apogee:      1.2,
-			perigee:     1.5,
+			apogee:  1.2,
+			perigee: 1.5,
+			// inclination: 45,
 			inclination: 0,
 			phase0:      float64(i) * 57.1,
 			phase:       0,
@@ -137,52 +152,86 @@ func main() {
 	// Initial projection matrix:
 
 	gl.MatrixMode(gl.PROJECTION)
-	glu.Perspective(1, float64(w)/float64(h), 0.1, 300)
 
-	gl.Translated(0, 0, -200)
-	gl.Rotated(20, 1, 0, 0)
+	const (
+		fov   = 1 // degrees
+		znear = 0.1
+		zfar  = 300
+	)
+	glu.Perspective(fov, float64(w)/float64(h), znear, zfar)
+
+	const (
+		camera_z_offset   = -150
+		camera_x_rotation = 0 // degrees
+		// camera_x_rotation = 20 // degrees
+	)
+	gl.Translated(0, 0, camera_z_offset)
+	gl.Rotated(camera_x_rotation, 1, 0, 0)
+
+	gl.Rotated(90, 1, 0, 0)
+
+	d := float64(0)
 
 	running := true
 	for running {
+		glfw.SwapBuffers()
+
+		if glfw.Key(glfw.KeyF2) == 1 {
+			println("Screenshot captured")
+			glh.CaptureToPng("screenshot.png")
+		}
+
+		running = (glfw.Key(glfw.KeyEsc) == 0 &&
+			glfw.WindowParam(glfw.Opened) == 1)
+
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
 		// Rotate the planet
 		gl.MatrixMode(gl.PROJECTION)
-		// gl.Rotated(0.05, 0, 1, 0)
-		gl.Rotated(0.5, 0, 1, 0)
+		gl.Rotated(0.1, 0, 1, 0)
+		// gl.Rotated(0.5, 0, 1, 0)
+		// gl.Rotated(0.5, 0, 1, 0)
 
 		// Start afresh each time
 		gl.MatrixMode(gl.MODELVIEW)
 		gl.LoadIdentity()
+		// gl.Rotated(d, 0, 1, 0)
+		_ = d
+		// d += 0.5
 
 		// Earth
-		glu.Sphere(q, 1, 100, 100)
+		// gl.Color4f(0, 0, 0, 0)
+		_ = q
+		glu.Sphere(q, 1, 40, 40)
 
-		// Atmosphere
-		gl.Disable(gl.LIGHTING)
-		gl.Disable(gl.DEPTH_TEST)
-		gl.Color4f(0.25, 0.25, 1, 0.25)
-		glu.Sphere(q, 1.025, 100, 100)
+		// unlit_points := glh.Compound(glh.Disable(gl.LIGHTING), glh.Primitive{gl.POINTS})
+		// glh.With(unlit_points, func() {
+		// 	gl.Vertex3d(1, 0, 0)
+		// })
 
-		gl.Enable(gl.DEPTH_TEST)
-
-		gl.PointSize(10)
-		gl.Begin(gl.POINTS)
-		gl.Color4f(0.75, 0.75, 0.75, 1)
-		gl.Vertex3d(-1.02, 0, 0)
-		gl.End()
-
-		gl.Enable(gl.LIGHTING)
+		// continue
 
 		for _, p := range planetoids {
 			const dt = 0.1 // TODO: Frame update
 			p.Render(dt)
 		}
 
-		glfw.SwapBuffers()
+		// Atmosphere
+		gl.Disable(gl.LIGHTING)
+		gl.Color4f(0.25, 0.25, 1, 0.25)
 
-		running = (glfw.Key(glfw.KeyEsc) == 0 &&
-			glfw.WindowParam(glfw.Opened) == 1)
+		glu.Sphere(q, 1.025, 100, 100)
+
+		gl.PointSize(10)
+		// gl.Disable(gl.DEPTH_TEST)
+		gl.Begin(gl.POINTS)
+		gl.Color4f(1.75, 0.75, 0.75, 1)
+		gl.Vertex3d(-1.04, 0, 0)
+		gl.End()
+		// gl.Enable(gl.DEPTH_TEST)
+
+		gl.Enable(gl.LIGHTING)
+
 	}
 }
 
