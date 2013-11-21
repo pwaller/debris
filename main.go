@@ -2,15 +2,55 @@ package main
 
 import (
 	"fmt"
-	// "log"
 	"math"
 	"os"
+	"unsafe"
 
 	"github.com/go-gl/gl"
 	"github.com/go-gl/glfw"
 	"github.com/go-gl/glh"
 	"github.com/go-gl/glu"
 )
+
+type Planetoid struct {
+	apogee, perigee, inclination, phase0, phase, rising_node float64
+
+	radius float64
+
+	quadric unsafe.Pointer
+	circle  *glh.MeshBuffer
+}
+
+// func NewPlanetoid(apogee, perigee, inclination, phase0, phase, radius float64,
+// 	circle *glh.MeshBuffer) *Planetoid {
+
+// 	// return &Planetoid{apogee, perigee, inclination, phase0, phase, radius, glu.NewQuadric(), circle}
+// }
+
+func (p *Planetoid) Render(dp float64) {
+	gl.PushMatrix()
+
+	gl.Rotated(p.rising_node, 0, 1, 0)
+	gl.Rotated(p.inclination, 0, 0, 1)
+
+	gl.Rotated(p.phase0+p.phase, 0, 1, 0)
+	p.phase += dp
+
+	gl.PushMatrix()
+	gl.Translated(p.apogee, 0, 0)
+	glu.Sphere(p.quadric, float32(p.radius), 20, 20)
+	gl.PopMatrix()
+
+	gl.PushMatrix()
+	gl.Rotated(90, 1, 0, 0)
+	gl.Scaled(p.apogee, p.apogee, 1)
+	gl.Disable(gl.LIGHTING)
+	p.circle.Render(gl.LINE_STRIP)
+	gl.Enable(gl.LIGHTING)
+	gl.PopMatrix()
+
+	gl.PopMatrix()
+}
 
 func main() {
 	var err error
@@ -41,12 +81,6 @@ func main() {
 
 	q := glu.NewQuadric()
 
-	gl.MatrixMode(gl.PROJECTION)
-	glu.Perspective(1, float64(w)/float64(h), 0.1, 1000)
-
-	gl.Translated(0, 0, -200)
-	gl.Rotated(10, 1, 0, 0)
-
 	gl.Enable(gl.CULL_FACE)
 	gl.Enable(gl.DEPTH_TEST)
 	gl.DepthFunc(gl.LEQUAL)
@@ -63,9 +97,9 @@ func main() {
 	// gl.Lightf(gl.LIGHT0, gl.LIGHT0, 0)
 	// log.Printf("Blah: %v", gl.GetError())
 	var (
-		ambient  []float32 = []float32{0.1, 0.1, 0.5, 1} // ambient light colour.
+		ambient  []float32 = []float32{0.1, 0.3, 0.6, 1} // ambient light colour.
 		diffuse  []float32 = []float32{1, 1, 0.5, 1}     // diffuse light colour.
-		lightpos []float32 = []float32{5, 0, 0, 1}       // Position of light source.
+		lightpos []float32 = []float32{100000, 0, 0, 1}  // Position of light source.
 	)
 
 	gl.Lightfv(gl.LIGHT1, gl.AMBIENT, ambient)
@@ -83,40 +117,69 @@ func main() {
 
 	b := createBuffer()
 
-	var d float64
-	d -= 90
+	planetoids := []*Planetoid{}
+	for i := 0; i < 10; i++ {
+		r := 0.05 * (math.Cos(float64(i)*79) + 1)
+		// p := NewPlanetoid(r, 1.5, 1.5, 0, , b)
+		p := &Planetoid{
+			apogee:      1.2,
+			perigee:     1.5,
+			inclination: 0,
+			phase0:      float64(i) * 57.1,
+			phase:       0,
+			radius:      r,
+			quadric:     glu.NewQuadric(),
+			circle:      b,
+		}
+		planetoids = append(planetoids, p)
+	}
+
+	// Initial projection matrix:
+
+	gl.MatrixMode(gl.PROJECTION)
+	glu.Perspective(1, float64(w)/float64(h), 0.1, 300)
+
+	gl.Translated(0, 0, -200)
+	gl.Rotated(20, 1, 0, 0)
 
 	running := true
 	for running {
-		glfw.SwapBuffers()
-
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
+		// Rotate the planet
 		gl.MatrixMode(gl.PROJECTION)
-		// gl.Rotated(1, 0, 1, 0)
+		// gl.Rotated(0.05, 0, 1, 0)
+		gl.Rotated(0.5, 0, 1, 0)
 
+		// Start afresh each time
 		gl.MatrixMode(gl.MODELVIEW)
 		gl.LoadIdentity()
 
-		// gl.Translated(0, 0, -5)
+		// Earth
+		glu.Sphere(q, 1, 100, 100)
 
-		glu.Sphere(q, 1, 40, 40)
-
-		gl.Rotated(d, 0, 1, 0)
-		d += 2
-
-		gl.PushMatrix()
-		gl.Translated(1.5, 0, 0)
-		glu.Sphere(q, 0.05, 20, 20)
-		gl.PopMatrix()
-
-		gl.PushMatrix()
-		gl.Rotated(90, 1, 0, 0)
-		gl.Scaled(1.5, 1.5, 1)
+		// Atmosphere
 		gl.Disable(gl.LIGHTING)
-		b.Render(gl.LINE_LOOP)
+		gl.Disable(gl.DEPTH_TEST)
+		gl.Color4f(0.25, 0.25, 1, 0.25)
+		glu.Sphere(q, 1.025, 100, 100)
+
+		gl.Enable(gl.DEPTH_TEST)
+
+		gl.PointSize(10)
+		gl.Begin(gl.POINTS)
+		gl.Color4f(0.75, 0.75, 0.75, 1)
+		gl.Vertex3d(-1.02, 0, 0)
+		gl.End()
+
 		gl.Enable(gl.LIGHTING)
-		gl.PopMatrix()
+
+		for _, p := range planetoids {
+			const dt = 0.1 // TODO: Frame update
+			p.Render(dt)
+		}
+
+		glfw.SwapBuffers()
 
 		running = (glfw.Key(glfw.KeyEsc) == 0 &&
 			glfw.WindowParam(glfw.Opened) == 1)
@@ -150,14 +213,15 @@ func onChar(key, state int) {
 
 func createBuffer() *glh.MeshBuffer {
 	const N = 128
+	const f = 0.05
 	pos := make([]float64, N*2)
 	clr := make([]float64, N*4)
 	for i := 0; i < N; i += 1 {
-		pos[2*i] = math.Cos(math.Pi * 2 * float64(i) / N)
-		pos[2*i+1] = math.Sin(math.Pi * 2 * float64(i) / N)
-		clr[4*i] = 1
-		clr[4*i+1] = 0
-		clr[4*i+2] = 0
+		pos[2*i] = math.Cos(f * 2 * math.Pi * 2 * float64(i) / N)
+		pos[2*i+1] = math.Sin(f * 2 * math.Pi * 2 * float64(i) / N)
+		clr[4*i] = 0.75
+		clr[4*i+1] = 0.2
+		clr[4*i+2] = 0.9
 		clr[4*i+3] = 1 - float64(i)/float64(N)
 	}
 
